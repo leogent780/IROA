@@ -46,10 +46,10 @@ def fetch_reviews(product_no: int, page: int) -> list[dict]:
     reviews = []
     for item in items:
         reviews.append({
-            "author": item.get("writer_name", ""),
+            "author": item.get("user_info", ""),
             "rating": item.get("ratings", ""),
             "date": (item.get("created_at") or "")[:10],
-            "content": item.get("body", ""),
+            "content": item.get("content", ""),
         })
     return reviews
 
