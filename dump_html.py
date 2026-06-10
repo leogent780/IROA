@@ -29,15 +29,19 @@ def main():
 
         def on_request(request):
             url = request.url
-            if any(k in url for k in ["review", "comment", "후기", "board"]):
-                api_calls.append({"type": "REQUEST", "url": url, "method": request.method})
+            if any(k in url for k in ["review", "comment", "후기", "board", "snapfit", "sfre"]):
+                api_calls.append({"type": "REQUEST", "url": url, "method": request.method, "post_data": request.post_data or ""})
 
         def on_response(response):
             url = response.url
-            if any(k in url for k in ["review", "comment", "후기", "board"]):
+            if any(k in url for k in ["snapfit", "sfre"]):
                 try:
                     body = response.text()
-                    api_calls.append({"type": "RESPONSE", "url": url, "status": response.status, "body_preview": body[:500]})
+                    # JSON 응답만 상세 출력
+                    if "application/json" in response.headers.get("content-type", "") or body.strip().startswith("[") or body.strip().startswith("{"):
+                        api_calls.append({"type": "JSON_RESPONSE", "url": url, "status": response.status, "body_preview": body[:1000]})
+                    else:
+                        api_calls.append({"type": "RESPONSE", "url": url, "status": response.status})
                 except Exception:
                     pass
 
