@@ -143,7 +143,15 @@ def crawl(url: str, max_pages: int = 10, delay: float = 1.5) -> list[dict]:
             page_url = get_review_page_url(url, page_num) if page_num > 1 else url
             print(f"[{page_num}/{max_pages}] {page_url}")
             try:
-                page.goto(page_url, wait_until="networkidle", timeout=30000)
+                page.goto(page_url, wait_until="domcontentloaded", timeout=60000)
+                # 리뷰 영역 로딩 대기
+                try:
+                    page.wait_for_selector(
+                        ", ".join(REVIEW_SELECTORS), timeout=10000
+                    )
+                except Exception:
+                    pass
+                time.sleep(1.5)
             except Exception as e:
                 print(f"  로드 실패: {e}")
                 break
