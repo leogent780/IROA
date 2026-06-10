@@ -1,6 +1,9 @@
 """API 응답 필드명 확인용"""
 import requests
 import json
+import sys
+
+url = sys.argv[1] if len(sys.argv) > 1 else "https://review-widget.alphwidget.com/v2/api-widget"
 
 resp = requests.get(
     "https://review-widget.alphwidget.com/v2/api-widget",

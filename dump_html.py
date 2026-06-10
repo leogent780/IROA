@@ -27,7 +27,6 @@ def main():
 
         page = context.new_page()
 
-        # 모든 네트워크 요청 캡처
         def on_request(request):
             url = request.url
             if any(k in url for k in ["review", "comment", "후기", "board"]):
@@ -47,8 +46,6 @@ def main():
 
         page.goto(args.url, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(5000)
-
-        # 페이지 끝까지 스크롤 (lazy load 트리거)
         page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         page.wait_for_timeout(3000)
 
@@ -63,20 +60,6 @@ def main():
                 print(json.dumps(c, ensure_ascii=False, indent=2))
         else:
             print("리뷰 관련 API 요청 없음")
-
-            # HTML에서 review 키워드 주변 텍스트 출력
-            print("\n=== HTML 내 'review' 키워드 위치 ===")
-            lower = html.lower()
-            idx = 0
-            count = 0
-            while count < 5:
-                idx = lower.find("review", idx)
-                if idx == -1:
-                    break
-                print(f"\n[{idx}]", html[max(0, idx-100):idx+200])
-                print("---")
-                idx += 6
-                count += 1
 
         browser.close()
 
