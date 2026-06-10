@@ -1,172 +1,76 @@
 """
-경쟁사 홈페이지 리뷰 크롤러
+경쟁사 홈페이지 리뷰 크롤러 (alphwidget API 직접 호출)
 사용법:
-    pip install playwright beautifulsoup4
-    python -m playwright install chromium
-    python crawler.py --url "https://www.well247.co.kr/product/detail.html?product_no=22" --out reviews.csv
+    pip install requests
+    python crawler.py --product_no 22 --out reviews.csv
+    python crawler.py --product_no 22 --out reviews.csv --pages 30
 """
 import argparse
 import csv
 import time
-import re
-from pathlib import Path
-from bs4 import BeautifulSoup
-from playwright.sync_api import sync_playwright
+import requests
+
+API_BASE = "https://review-widget.alphwidget.com/v2/api-widget"
+MALL_ID = "hlbgswell247"
+SHOP_NO = 1
+WIDGET_CODE = "80831c03"
+PAGE_SIZE = 50
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://www.well247.co.kr/",
+    "Origin": "https://www.well247.co.kr",
+}
 
 
-REVIEW_SELECTORS = [
-    # 카페24 계열 공통
-    ".xans-product-review li",
-    "#review_list li",
-    ".reviewList li",
-    ".review-list li",
-    ".prd-review li",
-    # 일반
-    ".review_item",
-    ".review-item",
-    "[class*='review'] li",
-]
-
-STAR_SELECTORS = [
-    ".star_score",
-    ".rating",
-    ".score",
-    "[class*='star']",
-    "[class*='rating']",
-    "[class*='score']",
-]
-
-AUTHOR_SELECTORS = [
-    ".name",
-    ".writer",
-    ".author",
-    "[class*='name']",
-    "[class*='writer']",
-    "[class*='author']",
-]
-
-DATE_SELECTORS = [
-    ".date",
-    ".writeday",
-    ".regdate",
-    "[class*='date']",
-    "[class*='day']",
-]
-
-CONTENT_SELECTORS = [
-    ".cont",
-    ".content",
-    ".review_cont",
-    ".review-content",
-    ".memo",
-    "[class*='cont']",
-    "[class*='content']",
-    "p",
-]
-
-
-def _text(el, selectors):
-    for sel in selectors:
-        found = el.select_one(sel)
-        if found:
-            return found.get_text(strip=True)
-    return ""
-
-
-def _star_count(el):
-    # style="width:80%" → 80/20 = 4점
-    for sel in STAR_SELECTORS:
-        found = el.select_one(sel)
-        if not found:
-            continue
-        style = found.get("style", "")
-        m = re.search(r"width\s*:\s*(\d+(?:\.\d+)?)\s*%", style)
-        if m:
-            return round(float(m.group(1)) / 20, 1)
-        text = found.get_text(strip=True)
-        m = re.search(r"(\d+(?:\.\d+)?)", text)
-        if m:
-            return float(m.group(1))
-    return ""
-
-
-def parse_reviews(html: str) -> list[dict]:
-    soup = BeautifulSoup(html, "html.parser")
-    items = []
-    for sel in REVIEW_SELECTORS:
-        items = soup.select(sel)
-        if items:
-            break
-    if not items:
+def fetch_reviews(product_no: int, page: int) -> list[dict]:
+    params = {
+        "page": page,
+        "page_size": PAGE_SIZE,
+        "sort": "-created_at",
+        "media_only": "false",
+        "product_no": product_no,
+        "widget_code": WIDGET_CODE,
+        "device": "w",
+    }
+    resp = requests.get(API_BASE, params=params, headers=HEADERS, timeout=15)
+    resp.raise_for_status()
+    items = resp.json()
+    if not isinstance(items, list):
         return []
 
     reviews = []
     for item in items:
-        content = _text(item, CONTENT_SELECTORS)
-        if not content:
-            continue
         reviews.append({
-            "author": _text(item, AUTHOR_SELECTORS),
-            "rating": _star_count(item),
-            "date": _text(item, DATE_SELECTORS),
-            "content": content,
+            "author": item.get("writer_name", ""),
+            "rating": item.get("ratings", ""),
+            "date": (item.get("created_at") or "")[:10],
+            "content": item.get("body", ""),
         })
     return reviews
 
 
-def get_review_page_url(base_url: str, page: int) -> str:
-    """카페24 계열 리뷰 페이지 URL 패턴"""
-    if "?" in base_url:
-        return f"{base_url}&review_page={page}"
-    return f"{base_url}?review_page={page}"
-
-
-def crawl(url: str, max_pages: int = 10, delay: float = 1.5) -> list[dict]:
+def crawl(product_no: int, max_pages: int, delay: float) -> list[dict]:
     all_reviews = []
+    for page_num in range(1, max_pages + 1):
+        print(f"[{page_num}/{max_pages}] 페이지 수집 중...")
+        try:
+            reviews = fetch_reviews(product_no, page_num)
+        except Exception as e:
+            print(f"  오류: {e}")
+            break
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox"],
-        )
-        context = browser.new_context(
-            ignore_https_errors=True,
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-        )
-        page = context.new_page()
+        if not reviews:
+            print("  리뷰 없음 — 마지막 페이지")
+            break
 
-        for page_num in range(1, max_pages + 1):
-            page_url = get_review_page_url(url, page_num) if page_num > 1 else url
-            print(f"[{page_num}/{max_pages}] {page_url}")
-            try:
-                page.goto(page_url, wait_until="domcontentloaded", timeout=60000)
-                # 리뷰 영역 로딩 대기
-                try:
-                    page.wait_for_selector(
-                        ", ".join(REVIEW_SELECTORS), timeout=10000
-                    )
-                except Exception:
-                    pass
-                time.sleep(1.5)
-            except Exception as e:
-                print(f"  로드 실패: {e}")
-                break
-
-            html = page.content()
-            reviews = parse_reviews(html)
-            if not reviews:
-                print("  리뷰 없음 — 마지막 페이지")
-                break
-
-            all_reviews.extend(reviews)
-            print(f"  수집: {len(reviews)}건 (누계 {len(all_reviews)}건)")
-            time.sleep(delay)
-
-        browser.close()
+        all_reviews.extend(reviews)
+        print(f"  수집: {len(reviews)}건 (누계 {len(all_reviews)}건)")
+        time.sleep(delay)
 
     return all_reviews
 
@@ -184,14 +88,15 @@ def save_csv(reviews: list[dict], path: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="경쟁사 홈페이지 리뷰 크롤러")
-    parser.add_argument("--url", required=True, help="상품 페이지 URL")
+    parser = argparse.ArgumentParser(description="well247 리뷰 크롤러")
+    parser.add_argument("--product_no", type=int, default=22, help="상품 번호 (기본 22)")
     parser.add_argument("--out", default="reviews.csv", help="저장할 CSV 파일명")
-    parser.add_argument("--pages", type=int, default=10, help="최대 페이지 수 (기본 10)")
-    parser.add_argument("--delay", type=float, default=1.5, help="페이지 간 딜레이(초)")
+    parser.add_argument("--pages", type=int, default=30, help="최대 페이지 수 (기본 30, 1페이지=50건)")
+    parser.add_argument("--delay", type=float, default=0.5, help="페이지 간 딜레이(초)")
     args = parser.parse_args()
 
-    reviews = crawl(args.url, max_pages=args.pages, delay=args.delay)
+    print(f"상품 #{args.product_no} 리뷰 수집 시작 (최대 {args.pages * PAGE_SIZE}건)")
+    reviews = crawl(args.product_no, max_pages=args.pages, delay=args.delay)
     save_csv(reviews, args.out)
 
 
