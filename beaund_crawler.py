@@ -90,17 +90,43 @@ def crawl(product_no: int, max_pages: int, delay: float) -> list[dict]:
         for page_num in range(1, max_pages + 1):
             print(f"[{page_num}/{max_pages}] 리뷰 수집 중...")
 
+            if page_num == 2:
+                # 페이지네이션 구조 출력 (디버깅)
+                html_debug = review_frame.content()
+                soup_debug = BeautifulSoup(html_debug, "html.parser")
+                pag = soup_debug.find("pagination-basic")
+                if pag:
+                    print(f"  pagination-basic 내용:\n{str(pag)[:800]}")
+                else:
+                    print("  pagination-basic 없음")
+                    # 모든 버튼 출력
+                    for btn in soup_debug.find_all("button")[:10]:
+                        print(f"  button: {btn}")
+
             if page_num > 1:
-                # 다음 페이지 버튼 클릭
-                try:
-                    next_btn = review_frame.locator("pagination-basic [aria-label='next'], .next-btn, button[part*='next']").first
-                    if not next_btn.is_visible(timeout=3000):
-                        print("  다음 페이지 버튼 없음 — 종료")
-                        break
-                    next_btn.click()
-                    review_frame.wait_for_timeout(2000)
-                except Exception as e:
-                    print(f"  페이지 이동 실패: {e}")
+                # 다음 페이지 버튼 클릭 (다양한 셀렉터 시도)
+                clicked = False
+                for sel in [
+                    "pagination-basic button[part='next']",
+                    "pagination-basic button[aria-label='next']",
+                    "pagination-basic .next",
+                    "pagination-basic button:last-child",
+                    "[part='next']",
+                    "button[aria-label='next']",
+                ]:
+                    try:
+                        btn = review_frame.locator(sel).first
+                        if btn.is_visible(timeout=1000):
+                            btn.click()
+                            review_frame.wait_for_timeout(2000)
+                            clicked = True
+                            print(f"  클릭 성공: {sel}")
+                            break
+                    except Exception:
+                        continue
+
+                if not clicked:
+                    print("  다음 페이지 버튼 없음 — 종료")
                     break
 
             html = review_frame.content()
