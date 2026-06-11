@@ -43,6 +43,7 @@ def parse_reviews_from_html(html: str) -> list[dict]:
 
 def crawl(product_no: int, max_pages: int, delay: float) -> list[dict]:
     all_reviews = []
+    seen = set()  # 중복 제거용
     url = f"{BASE_URL}/product/detail.html?product_no={product_no}"
 
     with sync_playwright() as p:
@@ -90,18 +91,6 @@ def crawl(product_no: int, max_pages: int, delay: float) -> list[dict]:
         for page_num in range(1, max_pages + 1):
             print(f"[{page_num}/{max_pages}] 리뷰 수집 중...")
 
-            if page_num == 2:
-                # 페이지네이션 구조 출력 (디버깅)
-                html_debug = review_frame.content()
-                soup_debug = BeautifulSoup(html_debug, "html.parser")
-                pag = soup_debug.find("pagination-basic")
-                if pag:
-                    print(f"  pagination-basic 내용:\n{str(pag)[:800]}")
-                else:
-                    print("  pagination-basic 없음")
-                    # 모든 버튼 출력
-                    for btn in soup_debug.find_all("button")[:10]:
-                        print(f"  button: {btn}")
 
             if page_num > 1:
                 # 다음 페이지 버튼 클릭 (다양한 셀렉터 시도)
@@ -147,8 +136,14 @@ def crawl(product_no: int, max_pages: int, delay: float) -> list[dict]:
                 print("  리뷰 없음 — 마지막 페이지")
                 break
 
-            all_reviews.extend(reviews)
-            print(f"  수집: {len(reviews)}건 (누계 {len(all_reviews)}건)")
+            new_reviews = [r for r in reviews if r["content"] not in seen]
+            if not new_reviews:
+                print("  중복 페이지 — 종료")
+                break
+            for r in new_reviews:
+                seen.add(r["content"])
+            all_reviews.extend(new_reviews)
+            print(f"  수집: {len(new_reviews)}건 (누계 {len(all_reviews)}건)")
             time.sleep(delay)
 
         browser.close()
