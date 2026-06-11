@@ -22,11 +22,12 @@ def fetch_all_reviews(product_no: str, max_pages: int) -> list[dict]:
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=True,
+            headless=False,
             args=[
                 "--no-sandbox",
                 "--disable-blink-features=AutomationControlled",
                 "--disable-dev-shm-usage",
+                "--start-maximized",
             ],
         )
         context = browser.new_context(
