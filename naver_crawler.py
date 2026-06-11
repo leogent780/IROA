@@ -1,56 +1,51 @@
 """
 네이버 스마트스토어 리뷰 크롤러
+
 사용법:
-    python naver_crawler.py --out naver_reviews.csv
-    (naver_cookies.txt 에 쿠키값, naver_headers.txt 에 x-client-rtk 값 저장 필요)
+  1. Chrome에서 스마트스토어 리뷰 페이지 방문 후 F12 → Network
+  2. query-pages 요청 우클릭 → Copy → Copy as cURL (bash)
+  3. 복사한 내용을 naver_curl.txt 로 저장
+  4. python naver_crawler.py --out naver_reviews.csv
 """
 import argparse
 import csv
+import re
 import time
 import requests
 
 REVIEW_API = "https://smartstore.naver.com/i/v1/contents/reviews/query-pages"
 PAGE_SIZE = 20
-
-# fetch에서 확인한 고정값
 CHECKOUT_MERCHANT_NO = 512518077
 ORIGIN_PRODUCT_NO = 13139491696
 
 
-def load_cookies(path="naver_cookies.txt") -> dict:
+def parse_curl(path="naver_curl.txt") -> tuple[dict, dict]:
+    """cURL 파일에서 헤더와 쿠키 파싱"""
     with open(path, encoding="utf-8") as f:
-        cookie_str = f.read().strip()
+        text = f.read()
+
+    headers = {}
+    for m in re.finditer(r"-H\s+'([^']+)'", text):
+        line = m.group(1)
+        if ": " in line:
+            k, v = line.split(": ", 1)
+            headers[k.lower()] = v
+
     cookies = {}
-    for part in cookie_str.split(";"):
-        part = part.strip()
-        if "=" in part:
-            k, v = part.split("=", 1)
-            cookies[k.strip()] = v.strip()
-    print(f"쿠키 수: {len(cookies)}개")
-    return cookies
+    m = re.search(r"-b\s+'([^']+)'", text)
+    if m:
+        for part in m.group(1).split(";"):
+            part = part.strip()
+            if "=" in part:
+                k, v = part.split("=", 1)
+                cookies[k.strip()] = v.strip()
+
+    print(f"헤더 수: {len(headers)}개, 쿠키 수: {len(cookies)}개")
+    return headers, cookies
 
 
-def fetch_reviews(rtk: str, rts: str, version: str, cookies: dict, max_pages: int) -> list[dict]:
+def fetch_reviews(headers: dict, cookies: dict, max_pages: int) -> list[dict]:
     all_reviews = []
-    headers = {
-        "accept": "application/json, text/plain, */*",
-        "accept-language": "ko-KR,ko;q=0.9",
-        "content-type": "application/json",
-        "origin": "https://smartstore.naver.com",
-        "referer": "https://smartstore.naver.com/vilarstore/products/13197800272",
-        "sec-ch-ua": '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"',
-        "sec-fetch-dest": "empty",
-        "sec-fetch-mode": "cors",
-        "sec-fetch-site": "same-origin",
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
-        "x-client-lct": "/vilarstore/products/13197800272",
-        "x-client-rtk": rtk,
-        "x-client-rts": rts,
-        "x-client-version": version,
-        "x-service-type": "NONE",
-    }
 
     for page_num in range(1, max_pages + 1):
         print(f"[{page_num}/{max_pages}] 수집 중...")
@@ -111,19 +106,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default="naver_reviews.csv")
     parser.add_argument("--pages", type=int, default=50)
-    parser.add_argument("--rtk", default="t21:LC8C42aZ1Og6MVgyystUAHolr2PEZhEviekadcxT1Xo")
-    parser.add_argument("--rts", default="1781157489226")
-    parser.add_argument("--version", default="20260611104631")
+    parser.add_argument("--curl", default="naver_curl.txt")
     args = parser.parse_args()
 
-    cookies = load_cookies()
-    reviews = fetch_reviews(
-        rtk=args.rtk,
-        rts=args.rts,
-        version=args.version,
-        cookies=cookies,
-        max_pages=args.pages,
-    )
+    headers, cookies = parse_curl(args.curl)
+    reviews = fetch_reviews(headers=headers, cookies=cookies, max_pages=args.pages)
     save_csv(reviews, args.out)
 
 
