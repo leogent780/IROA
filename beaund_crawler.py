@@ -16,10 +16,9 @@ DRAW_URL = "https://sfre-srcs-service.snapfit.co.kr/Draw/draw_review_dependent"
 BASE_URL = "https://beaund.com"
 
 
-def get_post_body_and_cookies(product_no: int) -> tuple[dict, dict]:
-    """Playwright로 페이지 로드 후 draw_review_dependent POST body와 쿠키 캡처"""
-    post_body = {}
-    cookies = {}
+def get_review_api(product_no: int) -> dict:
+    """iframe 내부 AJAX 호출을 캡처해서 실제 리뷰 JSON API URL과 파라미터 추출"""
+    api_info = {}
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
@@ -33,28 +32,52 @@ def get_post_body_and_cookies(product_no: int) -> tuple[dict, dict]:
         )
         page = context.new_page()
 
+        all_requests = []
+
         def on_request(request):
-            if "draw_review_dependent" in request.url and request.method == "POST":
-                raw = request.post_data or ""
-                for pair in raw.split("&"):
-                    if "=" in pair:
-                        k, v = pair.split("=", 1)
-                        post_body[k] = v
+            all_requests.append({
+                "url": request.url,
+                "method": request.method,
+                "post_data": request.post_data or "",
+            })
+
+        def on_response(response):
+            url = response.url
+            # JSON 응답 중 리뷰 데이터가 있는 것 탐색
+            ct = response.headers.get("content-type", "")
+            if "json" in ct or "javascript" in ct:
+                try:
+                    body = response.text()
+                    if any(k in body for k in ['"content"', '"review"', '"body"', '"text"']):
+                        if len(body) > 500:
+                            api_info.setdefault("candidates", []).append({
+                                "url": url,
+                                "method": response.request.method,
+                                "post_data": response.request.post_data or "",
+                                "preview": body[:300],
+                            })
+                except Exception:
+                    pass
 
         page.on("request", on_request)
+        page.on("response", on_response)
 
         url = f"{BASE_URL}/product/detail.html?product_no={product_no}"
         print(f"페이지 로드 중: {url}")
         page.goto(url, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_timeout(5000)
-
-        # 쿠키 수집
-        for c in context.cookies():
-            cookies[c["name"]] = c["value"]
+        page.wait_for_timeout(8000)
 
         browser.close()
 
-    return post_body, cookies
+    print(f"\n=== 리뷰 데이터 후보 API ({len(api_info.get('candidates', []))}개) ===")
+    for c in api_info.get("candidates", []):
+        print(f"\nURL: {c['url']}")
+        print(f"Method: {c['method']}")
+        if c['post_data']:
+            print(f"POST: {c['post_data'][:200]}")
+        print(f"Preview: {c['preview']}")
+
+    return api_info
 
 
 def fetch_review_html(post_body: dict, cookies: dict, page_num: int) -> str:
@@ -99,41 +122,9 @@ def parse_reviews_from_html(html: str) -> list[dict]:
 
 
 def crawl(product_no: int, max_pages: int, delay: float) -> list[dict]:
-    print("POST body 및 쿠키 획득 중...")
-    post_body, cookies = get_post_body_and_cookies(product_no)
-
-    if not post_body:
-        print("POST body 획득 실패.")
-        return []
-    print(f"POST body 획득 완료. 파라미터: {list(post_body.keys())}")
-
-    all_reviews = []
-    seen = set()
-
-    for page_num in range(1, max_pages + 1):
-        print(f"[{page_num}/{max_pages}] 리뷰 수집 중...")
-        try:
-            html = fetch_review_html(post_body, cookies, page_num)
-        except Exception as e:
-            print(f"  오류: {e}")
-            break
-
-        reviews = parse_reviews_from_html(html)
-        if not reviews:
-            print("  리뷰 없음 — 마지막 페이지")
-            break
-
-        new_reviews = [r for r in reviews if r["content"] not in seen]
-        if not new_reviews:
-            print("  중복 페이지 — 종료")
-            break
-        for r in new_reviews:
-            seen.add(r["content"])
-        all_reviews.extend(new_reviews)
-        print(f"  수집: {len(new_reviews)}건 (누계 {len(all_reviews)}건)")
-        time.sleep(delay)
-
-    return all_reviews
+    print("API 탐색 중...")
+    get_review_api(product_no)
+    return []
 
 
 def save_csv(reviews: list[dict], path: str):
