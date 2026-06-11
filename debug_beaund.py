@@ -79,17 +79,33 @@ def main():
                 }""")
                 print(snap)
 
-                print("\n=== snapApp 메서드 목록 ===")
-                methods = frame.evaluate("""() => {
+                print("\n=== snapApp.request 메서드 ===")
+                req_methods = frame.evaluate("""() => {
                     try {
-                        const app = window.snapApp;
-                        if (!app) return 'snapApp is null/undefined';
-                        const keys = [];
-                        for (const k in app) keys.push(k + ':' + typeof app[k]);
-                        return keys.slice(0, 30);
+                        const r = window.snapApp.request;
+                        return Object.keys(r).map(k => k + ':' + typeof r[k]);
                     } catch(e) { return String(e); }
                 }""")
-                print(methods)
+                print(req_methods)
+
+                print("\n=== 리뷰 API 직접 호출 시도 (page=2) ===")
+                result = frame.evaluate("""async () => {
+                    try {
+                        const d = window.snapData;
+                        const url = d.serverUrl + '/Review/list';
+                        const params = new URLSearchParams({
+                            store_id: d.storeId,
+                            widget_id: d.widgetId,
+                            item_id: d.itemId,
+                            page: 2,
+                            page_size: 10,
+                        });
+                        const resp = await fetch(url + '?' + params);
+                        const text = await resp.text();
+                        return text.slice(0, 500);
+                    } catch(e) { return String(e); }
+                }""")
+                print(result)
                 break
 
         browser.close()
