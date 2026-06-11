@@ -71,18 +71,25 @@ def main():
                 }""")
                 print(info)
 
-                print("\n=== pagination-basic 속성 ===")
-                pag = frame.evaluate("""() => {
-                    const el = document.querySelector('pagination-basic');
-                    if (!el) return 'not found';
-                    const attrs = {};
-                    for (const a of el.attributes) attrs[a.name] = a.value;
-                    const props = ['page', 'totalCount', 'limit'];
-                    const propVals = {};
-                    for (const p of props) propVals[p] = el[p];
-                    return {attrs, props: propVals};
+                print("\n=== snapData 내용 ===")
+                snap = frame.evaluate("""() => {
+                    try {
+                        return JSON.stringify(window.snapData).slice(0, 1000);
+                    } catch(e) { return String(e); }
                 }""")
-                print(pag)
+                print(snap)
+
+                print("\n=== snapApp 메서드 목록 ===")
+                methods = frame.evaluate("""() => {
+                    try {
+                        const app = window.snapApp;
+                        if (!app) return 'snapApp is null/undefined';
+                        const keys = [];
+                        for (const k in app) keys.push(k + ':' + typeof app[k]);
+                        return keys.slice(0, 30);
+                    } catch(e) { return String(e); }
+                }""")
+                print(methods)
                 break
 
         browser.close()
