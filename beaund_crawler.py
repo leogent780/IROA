@@ -93,29 +93,26 @@ def crawl(product_no: int, max_pages: int, delay: float) -> list[dict]:
 
 
             if page_num > 1:
-                # 다음 페이지 버튼 클릭 (다양한 셀렉터 시도)
-                clicked = False
-                for sel in [
-                    "pagination-basic button[part='next']",
-                    "pagination-basic button[aria-label='next']",
-                    "pagination-basic .next",
-                    "pagination-basic button:last-child",
-                    "[part='next']",
-                    "button[aria-label='next']",
-                ]:
-                    try:
-                        btn = review_frame.locator(sel).first
-                        if btn.is_visible(timeout=1000):
-                            btn.click()
-                            review_frame.wait_for_timeout(2000)
-                            clicked = True
-                            print(f"  클릭 성공: {sel}")
-                            break
-                    except Exception:
-                        continue
-
-                if not clicked:
-                    print("  다음 페이지 버튼 없음 — 종료")
+                # shadow DOM 내 pagination-basic 페이지 이동
+                try:
+                    result = review_frame.evaluate(f"""() => {{
+                        const pag = document.querySelector('pagination-basic');
+                        if (!pag) return 'no pagination';
+                        // shadow DOM에서 next 버튼 클릭 시도
+                        const shadow = pag.shadowRoot;
+                        if (shadow) {{
+                            const next = shadow.querySelector('.next, [part="next"], button:last-child');
+                            if (next) {{ next.click(); return 'shadow click'; }}
+                        }}
+                        // 속성으로 직접 페이지 변경
+                        pag.setAttribute('page', '{page_num}');
+                        pag.dispatchEvent(new CustomEvent('page-change', {{detail: {{page: {page_num}}}, bubbles: true}}));
+                        return 'attr set';
+                    }}""")
+                    print(f"  페이지 이동: {result}")
+                    review_frame.wait_for_timeout(2500)
+                except Exception as e:
+                    print(f"  페이지 이동 실패: {e}")
                     break
 
             html = review_frame.content()
