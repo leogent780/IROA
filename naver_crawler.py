@@ -21,23 +21,25 @@ def fetch_all_reviews(product_no: str, max_pages: int) -> list[dict]:
     api_results = []
 
     with sync_playwright() as p:
-        import os, shutil
-        chrome_paths = [
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
-        ]
-        chrome_exe = next((p for p in chrome_paths if os.path.exists(p)), None)
-
-        browser = p.chromium.launch(
-            headless=False,
-            executable_path=chrome_exe,
-            args=[
-                "--no-sandbox",
-                "--disable-blink-features=AutomationControlled",
-                "--start-maximized",
-            ],
-        )
+        try:
+            browser = p.chromium.launch(
+                channel="chrome",
+                headless=False,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--start-maximized",
+                ],
+            )
+            print("시스템 Chrome 사용")
+        except Exception as e:
+            print(f"Chrome 없음, Chromium 사용: {e}")
+            browser = p.chromium.launch(
+                headless=False,
+                args=[
+                    "--no-sandbox",
+                    "--disable-blink-features=AutomationControlled",
+                ],
+            )
         context = browser.new_context(
             ignore_https_errors=True,
             user_agent=(
