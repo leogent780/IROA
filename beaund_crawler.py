@@ -168,17 +168,28 @@ def crawl(product_no: int, max_pages: int, delay: float) -> list[dict]:
             print(f"  오류: {e}")
             break
 
-        # 첫 페이지 HTML 저장 (디버깅용)
+        # 첫 페이지 HTML 저장 및 구조 분석 (디버깅용)
         if page_num == 1:
             with open("review_page1.html", "w", encoding="utf-8") as f:
                 f.write(html)
             print(f"  첫 페이지 HTML 저장: review_page1.html ({len(html):,} bytes)")
 
-            # 태그 종류 확인
             from bs4 import BeautifulSoup as BS
             soup = BS(html, "html.parser")
-            tags = set(t.name for t in soup.find_all())
-            print(f"  HTML 내 태그 목록: {sorted(tags)}")
+
+            # ol 태그 내용 확인
+            ol = soup.find("ol")
+            if ol:
+                print(f"\n  <ol> 내용 (첫 500자):\n{str(ol)[:500]}")
+            else:
+                print("  <ol> 없음")
+
+            # script 태그에서 JSON 데이터 탐색
+            for sc in soup.find_all("script"):
+                txt = sc.get_text()
+                if any(k in txt for k in ["review", "content", "body", "rating"]):
+                    print(f"\n  [script 데이터 발견] (첫 500자):\n{txt[:500]}")
+                    break
 
         reviews = parse_review_html(html)
         if not reviews:
