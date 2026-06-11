@@ -49,7 +49,7 @@ def build_curl_args(curl_text: str, page: int) -> list[str]:
 
 def fetch_page(curl_text: str, page: int) -> dict:
     args = build_curl_args(curl_text, page)
-    result = subprocess.run(args, capture_output=True, text=True, timeout=30)
+    result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", timeout=30)
     if not result.stdout.strip():
         raise ValueError(f"빈 응답 (stderr: {result.stderr[:200]})")
     return json.loads(result.stdout)
