@@ -27,7 +27,7 @@ def get_cookies_and_fetch(product_no: str, max_pages: int) -> list[dict]:
     options.add_argument("--lang=ko-KR")
 
     print("Chrome 실행 중 (잠시 창이 열립니다)...")
-    driver = uc.Chrome(options=options, headless=False)
+    driver = uc.Chrome(options=options, headless=False, version_main=148)
 
     try:
         url = f"https://smartstore.naver.com/vilarstore/products/{product_no}#REVIEW"
