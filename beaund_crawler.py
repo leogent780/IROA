@@ -7,21 +7,50 @@ beaund.com (Snapfit 리뷰 시스템) 크롤러
 """
 import argparse
 import csv
-import json
 import time
-import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
-DRAW_URL = "https://sfre-srcs-service.snapfit.co.kr/Draw/draw_review_dependent"
-INIT_URL = "https://sfre-srcs-service.snapfit.co.kr/Datainit/init_detail_page"
-STORE = "beaund"
 BASE_URL = "https://beaund.com"
 
 
-def get_tokens(product_no: int) -> dict:
-    """Playwright로 페이지 로드 후 init_detail_page 토큰 캡처"""
-    tokens = {}
+def parse_reviews_from_html(html: str) -> list[dict]:
+    soup = BeautifulSoup(html, "html.parser")
+    reviews = []
+
+    # Snapfit은 web component 방식 — ol > li 구조
+    items = soup.select("ol li") or soup.select(".review-list li") or soup.select("li")
+
+    for item in items:
+        content_el = (
+            item.select_one("review-text")
+            or item.select_one("[class*='text']")
+            or item.select_one("p")
+            or item.select_one("span")
+        )
+        content = content_el.get_text(strip=True) if content_el else item.get_text(strip=True)
+        if not content or len(content) < 5:
+            continue
+
+        rating_el = item.select_one("[score]") or item.select_one("[data-score]") or item.select_one("[class*='rating']")
+        rating = ""
+        if rating_el:
+            rating = rating_el.get("score") or rating_el.get("data-score") or rating_el.get_text(strip=True)
+
+        author_el = item.select_one("[class*='writer']") or item.select_one("[class*='author']") or item.select_one("[class*='name']")
+        author = author_el.get_text(strip=True) if author_el else ""
+
+        date_el = item.select_one("[class*='date']") or item.select_one("time")
+        date = date_el.get_text(strip=True) if date_el else ""
+
+        reviews.append({"author": author, "rating": rating, "date": date, "content": content})
+
+    return reviews
+
+
+def crawl(product_no: int, max_pages: int, delay: float) -> list[dict]:
+    all_reviews = []
+    url = f"{BASE_URL}/product/detail.html?product_no={product_no}"
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
@@ -35,170 +64,65 @@ def get_tokens(product_no: int) -> dict:
         )
         page = context.new_page()
 
-        def on_response(response):
-            if "init_detail_page" in response.url:
-                try:
-                    data = response.json()
-                    wcd = data.get("data", {}).get("widgetCommonDatas", {})
-                    wi = data.get("data", {}).get("review", {}).get("widgetinfo", {})
-                    # 첫 번째 위젯 정보 사용
-                    first_widget = next(iter(wi.values()), {})
-                    tokens.update({
-                        "a": wcd.get("a", ""),
-                        "b": wcd.get("b", ""),
-                        "c": wcd.get("c", "pc"),
-                        "d": wcd.get("d", str(product_no)),
-                        "e": wcd.get("e", ""),
-                        "h": first_widget.get("h", ""),
-                        "f": first_widget.get("f", ""),
-                    })
-                except Exception as e:
-                    print(f"토큰 파싱 오류: {e}")
-
-        page.on("response", on_response)
-        url = f"{BASE_URL}/product/detail.html?product_no={product_no}"
         print(f"페이지 로드 중: {url}")
         page.goto(url, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(5000)
-        browser.close()
 
-    return tokens
+        # 리뷰 iframe 찾기
+        frames = page.frames
+        review_frame = None
+        for frame in frames:
+            if "snapfit" in frame.url or "review_widget" in frame.name:
+                review_frame = frame
+                print(f"리뷰 iframe 발견: {frame.url}")
+                break
 
+        if not review_frame:
+            print("리뷰 iframe을 찾지 못했습니다. 가능한 iframe 목록:")
+            for frame in frames:
+                print(f"  name={frame.name!r}, url={frame.url}")
+            browser.close()
+            return []
 
-def fetch_review_html(tokens: dict, page: int) -> str:
-    data = {
-        "e": tokens["e"],
-        "c": tokens["c"],
-        "a": tokens["a"],
-        "d": tokens["d"],
-        "b": tokens["b"],
-        "h": tokens["h"],
-        "f": tokens["f"],
-        "i": "tiaa",
-        "j": "0",
-        "page": str(page),
-    }
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-        "Referer": BASE_URL,
-        "Origin": BASE_URL,
-        "Content-Type": "application/x-www-form-urlencoded",
-    }
-    resp = requests.post(DRAW_URL, data=data, headers=headers, timeout=15)
-    resp.raise_for_status()
-    return resp.text
+        for page_num in range(1, max_pages + 1):
+            print(f"[{page_num}/{max_pages}] 리뷰 수집 중...")
 
-
-def parse_review_html(html: str) -> list[dict]:
-    soup = BeautifulSoup(html, "html.parser")
-    reviews = []
-
-    # Snapfit 리뷰 아이템 셀렉터
-    items = (
-        soup.select("review-item")
-        or soup.select(".review-item")
-        or soup.select("[class*='review_item']")
-        or soup.select("li[class*='review']")
-    )
-
-    for item in items:
-        # 리뷰 내용
-        content_el = (
-            item.select_one("review-text")
-            or item.select_one(".review-text")
-            or item.select_one("[class*='review_text']")
-            or item.select_one("p")
-        )
-        content = content_el.get_text(strip=True) if content_el else ""
-        if not content:
-            continue
-
-        # 별점
-        rating_el = (
-            item.select_one("review-rating")
-            or item.select_one(".review-rating")
-            or item.select_one("[class*='rating']")
-        )
-        rating = ""
-        if rating_el:
-            # data-score 속성 우선
-            rating = rating_el.get("score") or rating_el.get("data-score") or rating_el.get_text(strip=True)
-
-        # 작성자
-        author_el = (
-            item.select_one("writer-display")
-            or item.select_one(".writer-display")
-            or item.select_one("[class*='writer']")
-            or item.select_one("[class*='author']")
-        )
-        author = author_el.get_text(strip=True) if author_el else ""
-
-        # 날짜
-        date_el = (
-            item.select_one("custom-date")
-            or item.select_one(".custom-date")
-            or item.select_one("[class*='date']")
-        )
-        date = date_el.get_text(strip=True) if date_el else ""
-
-        reviews.append({
-            "author": author,
-            "rating": rating,
-            "date": date,
-            "content": content,
-        })
-
-    return reviews
-
-
-def crawl(product_no: int, max_pages: int, delay: float) -> list[dict]:
-    print("토큰 획득 중...")
-    tokens = get_tokens(product_no)
-    if not tokens.get("a"):
-        print("토큰 획득 실패. 페이지가 정상 로드되었는지 확인하세요.")
-        return []
-    print(f"토큰 획득 완료: product_no={tokens['d']}")
-
-    all_reviews = []
-    for page_num in range(1, max_pages + 1):
-        print(f"[{page_num}/{max_pages}] 리뷰 수집 중...")
-        try:
-            html = fetch_review_html(tokens, page_num)
-        except Exception as e:
-            print(f"  오류: {e}")
-            break
-
-        # 첫 페이지 HTML 저장 및 구조 분석 (디버깅용)
-        if page_num == 1:
-            with open("review_page1.html", "w", encoding="utf-8") as f:
-                f.write(html)
-            print(f"  첫 페이지 HTML 저장: review_page1.html ({len(html):,} bytes)")
-
-            from bs4 import BeautifulSoup as BS
-            soup = BS(html, "html.parser")
-
-            # ol 태그 내용 확인
-            ol = soup.find("ol")
-            if ol:
-                print(f"\n  <ol> 내용 (첫 500자):\n{str(ol)[:500]}")
-            else:
-                print("  <ol> 없음")
-
-            # script 태그에서 JSON 데이터 탐색
-            for sc in soup.find_all("script"):
-                txt = sc.get_text()
-                if any(k in txt for k in ["review", "content", "body", "rating"]):
-                    print(f"\n  [script 데이터 발견] (첫 500자):\n{txt[:500]}")
+            if page_num > 1:
+                # 다음 페이지 버튼 클릭
+                try:
+                    next_btn = review_frame.locator("pagination-basic [aria-label='next'], .next-btn, button[part*='next']").first
+                    if not next_btn.is_visible(timeout=3000):
+                        print("  다음 페이지 버튼 없음 — 종료")
+                        break
+                    next_btn.click()
+                    review_frame.wait_for_timeout(2000)
+                except Exception as e:
+                    print(f"  페이지 이동 실패: {e}")
                     break
 
-        reviews = parse_review_html(html)
-        if not reviews:
-            print("  리뷰 없음 — 마지막 페이지")
-            break
+            html = review_frame.content()
 
-        all_reviews.extend(reviews)
-        print(f"  수집: {len(reviews)}건 (누계 {len(all_reviews)}건)")
-        time.sleep(delay)
+            # 첫 페이지 디버깅
+            if page_num == 1:
+                with open("review_frame.html", "w", encoding="utf-8") as f:
+                    f.write(html)
+                soup = BeautifulSoup(html, "html.parser")
+                tags = sorted(set(t.name for t in soup.find_all()))
+                print(f"  iframe 태그 목록: {tags}")
+                ol = soup.find("ol")
+                if ol:
+                    print(f"  <ol> 내용 (첫 300자): {str(ol)[:300]}")
+
+            reviews = parse_reviews_from_html(html)
+            if not reviews:
+                print("  리뷰 없음 — 마지막 페이지")
+                break
+
+            all_reviews.extend(reviews)
+            print(f"  수집: {len(reviews)}건 (누계 {len(all_reviews)}건)")
+            time.sleep(delay)
+
+        browser.close()
 
     return all_reviews
 
@@ -220,7 +144,7 @@ def main():
     parser.add_argument("--product_no", type=int, default=53, help="상품 번호 (기본 53)")
     parser.add_argument("--out", default="beaund_reviews.csv", help="저장할 CSV 파일명")
     parser.add_argument("--pages", type=int, default=30, help="최대 페이지 수 (기본 30)")
-    parser.add_argument("--delay", type=float, default=0.5, help="페이지 간 딜레이(초)")
+    parser.add_argument("--delay", type=float, default=1.0, help="페이지 간 딜레이(초)")
     args = parser.parse_args()
 
     print(f"beaund.com 상품 #{args.product_no} 리뷰 수집 시작")
