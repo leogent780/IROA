@@ -1,63 +1,42 @@
 """
-네이버 스마트스토어 리뷰 크롤러 (기존 Chrome 연결 방식)
+네이버 스마트스토어 리뷰 크롤러 (browser-cookie3 방식)
 
 사전 준비:
-  1. Chrome을 모두 닫기
-  2. 아래 명령어로 Chrome 실행:
-     "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
-  3. 열린 Chrome에서 아무 네이버 페이지나 방문 (쿠키 생성용)
-  4. 그 상태에서 이 스크립트 실행:
-     python naver_crawler.py --product_no 13197800272 --out naver_reviews.csv
+  1. Chrome에서 https://smartstore.naver.com/vilarstore/products/13197800272 방문
+  2. python naver_crawler.py --product_no 13197800272 --out naver_reviews.csv
 """
 import argparse
 import csv
 import time
 import requests
-from playwright.sync_api import sync_playwright
+import browser_cookie3
 
 REVIEW_API = "https://smartstore.naver.com/i/v1/reviews/paged-reviews"
 PAGE_SIZE = 20
+UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/148.0.0.0 Safari/537.36"
+)
 
 
-def get_cookies_via_existing_chrome(product_no: str) -> tuple[dict, str]:
-    """기존 Chrome에 연결해서 쿠키와 UA 수집"""
-    with sync_playwright() as p:
-        try:
-            browser = p.chromium.connect_over_cdp("http://localhost:9222")
-        except Exception as e:
-            print(f"\n[오류] Chrome에 연결할 수 없습니다: {e}")
-            print("\n다음 순서로 진행하세요:")
-            print('  1. Chrome을 모두 닫기')
-            print('  2. 실행: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222')
-            print("  3. 열린 Chrome에서 https://naver.com 방문")
-            print("  4. 다시 이 스크립트 실행")
-            raise SystemExit(1)
-
-        context = browser.contexts[0] if browser.contexts else browser.new_context()
-        page = context.new_page()
-
-        url = f"https://smartstore.naver.com/vilarstore/products/{product_no}#REVIEW"
-        print(f"페이지 로드 중: {url}")
-        page.goto(url, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_timeout(5000)
-
-        title = page.title()
-        print(f"페이지 타이틀: {title}")
-
-        cookies = {c["name"]: c["value"] for c in context.cookies()}
-        ua = page.evaluate("() => navigator.userAgent")
-        print(f"쿠키 수: {len(cookies)}개")
-
-        page.close()
-        browser.close()
-
-    return cookies, ua
+def get_naver_cookies() -> dict:
+    """Chrome 쿠키 DB에서 네이버 쿠키 직접 읽기"""
+    try:
+        jar = browser_cookie3.chrome(domain_name=".naver.com")
+        cookies = {c.name: c.value for c in jar}
+        print(f"쿠키 수: {len(cookies)}개  키: {list(cookies.keys())[:8]}")
+        return cookies
+    except Exception as e:
+        print(f"쿠키 읽기 실패: {e}")
+        print("Chrome에서 smartstore.naver.com을 방문한 뒤 다시 실행하세요.")
+        raise SystemExit(1)
 
 
-def fetch_reviews(product_no: str, max_pages: int, cookies: dict, ua: str) -> list[dict]:
+def fetch_reviews(product_no: str, max_pages: int, cookies: dict) -> list[dict]:
     all_reviews = []
     headers = {
-        "User-Agent": ua,
+        "User-Agent": UA,
         "Referer": f"https://smartstore.naver.com/vilarstore/products/{product_no}",
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "ko-KR,ko;q=0.9",
@@ -126,13 +105,8 @@ def main():
     args = parser.parse_args()
 
     print(f"네이버 스마트스토어 상품 #{args.product_no} 리뷰 수집 시작")
-    cookies, ua = get_cookies_via_existing_chrome(args.product_no)
-
-    if not cookies:
-        print("쿠키 없음 — Chrome에서 네이버 로그인 후 다시 시도하세요")
-        return
-
-    reviews = fetch_reviews(args.product_no, max_pages=args.pages, cookies=cookies, ua=ua)
+    cookies = get_naver_cookies()
+    reviews = fetch_reviews(args.product_no, max_pages=args.pages, cookies=cookies)
     save_csv(reviews, args.out)
 
 
