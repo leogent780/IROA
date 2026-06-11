@@ -21,12 +21,20 @@ def fetch_all_reviews(product_no: str, max_pages: int) -> list[dict]:
     api_results = []
 
     with sync_playwright() as p:
+        import os, shutil
+        chrome_paths = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        ]
+        chrome_exe = next((p for p in chrome_paths if os.path.exists(p)), None)
+
         browser = p.chromium.launch(
             headless=False,
+            executable_path=chrome_exe,
             args=[
                 "--no-sandbox",
                 "--disable-blink-features=AutomationControlled",
-                "--disable-dev-shm-usage",
                 "--start-maximized",
             ],
         )
