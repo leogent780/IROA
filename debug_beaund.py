@@ -98,24 +98,33 @@ def main():
                 }""")
                 print(req_methods)
 
-                print("\n=== 리뷰 API 직접 호출 시도 (page=2) ===")
+                print("\n=== snapApp.request.get으로 리뷰 API 호출 (page=1) ===")
                 result = frame.evaluate("""async () => {
                     try {
                         const d = window.snapData;
-                        const url = d.serverUrl + '/Review/list';
-                        const params = new URLSearchParams({
-                            store_id: d.storeId,
-                            widget_id: d.widgetId,
-                            item_id: d.itemId,
-                            page: 2,
-                            page_size: 10,
-                        });
-                        const resp = await fetch(url + '?' + params);
-                        const text = await resp.text();
-                        return text.slice(0, 500);
-                    } catch(e) { return String(e); }
+                        const result = await window.snapApp.request.get(
+                            d.serverUrl + '/Review/list',
+                            {store_id: d.storeId, widget_id: d.widgetId,
+                             item_id: d.itemId, page: 1, page_size: 5}
+                        );
+                        return JSON.stringify(result).slice(0, 800);
+                    } catch(e) { return 'error: ' + String(e); }
                 }""")
                 print(result)
+
+                print("\n=== snapApp.request.get으로 리뷰 API 호출 (page=2) ===")
+                result2 = frame.evaluate("""async () => {
+                    try {
+                        const d = window.snapData;
+                        const result = await window.snapApp.request.get(
+                            d.serverUrl + '/Review/list',
+                            {store_id: d.storeId, widget_id: d.widgetId,
+                             item_id: d.itemId, page: 2, page_size: 5}
+                        );
+                        return JSON.stringify(result).slice(0, 800);
+                    } catch(e) { return 'error: ' + String(e); }
+                }""")
+                print(result2)
                 break
 
         browser.close()
