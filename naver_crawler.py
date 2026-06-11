@@ -1,167 +1,123 @@
 """
-네이버 스마트스토어 리뷰 크롤러 (Playwright 기반)
+네이버 스마트스토어 리뷰 크롤러 (undetected-chromedriver 기반)
 사용법:
-    pip install playwright
-    python -m playwright install chromium
+    pip install undetected-chromedriver selenium requests
     python naver_crawler.py --product_no 13197800272 --out naver_reviews.csv
 """
 import argparse
 import csv
 import json
 import time
-from playwright.sync_api import sync_playwright
+import requests
+import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
-STORE_URL = "https://smartstore.naver.com/vilarstore/products/{product_no}#REVIEW"
 REVIEW_API = "https://smartstore.naver.com/i/v1/reviews/paged-reviews"
 PAGE_SIZE = 20
 
 
-def fetch_all_reviews(product_no: str, max_pages: int) -> list[dict]:
+def get_cookies_and_fetch(product_no: str, max_pages: int) -> list[dict]:
     all_reviews = []
-    api_results = []
 
-    with sync_playwright() as p:
-        try:
-            browser = p.chromium.launch(
-                channel="chrome",
-                headless=False,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--start-maximized",
-                ],
-            )
-            print("시스템 Chrome 사용")
-        except Exception as e:
-            print(f"Chrome 없음, Chromium 사용: {e}")
-            browser = p.chromium.launch(
-                headless=False,
-                args=[
-                    "--no-sandbox",
-                    "--disable-blink-features=AutomationControlled",
-                ],
-            )
-        context = browser.new_context(
-            ignore_https_errors=True,
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            locale="ko-KR",
-            timezone_id="Asia/Seoul",
-            viewport={"width": 1280, "height": 800},
-            extra_http_headers={
-                "Accept-Language": "ko-KR,ko;q=0.9",
-            },
-        )
-        context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
-            Object.defineProperty(navigator, 'languages', {get: () => ['ko-KR','ko']});
-            window.chrome = {runtime: {}};
-        """)
-        page = context.new_page()
+    options = uc.ChromeOptions()
+    options.add_argument("--no-sandbox")
+    options.add_argument("--window-size=1280,800")
+    options.add_argument("--lang=ko-KR")
 
-        # Intercept review API responses
-        def on_response(response):
-            if "paged-reviews" in response.url:
-                try:
-                    data = response.json()
-                    api_results.append(data)
-                    print(f"  [API] 응답 수신: {response.url[:80]}")
-                except Exception:
-                    pass
+    print("Chrome 실행 중 (잠시 창이 열립니다)...")
+    driver = uc.Chrome(options=options, headless=False)
 
-        page.on("response", on_response)
-
-        url = STORE_URL.format(product_no=product_no)
+    try:
+        url = f"https://smartstore.naver.com/vilarstore/products/{product_no}#REVIEW"
         print(f"페이지 로드 중: {url}")
-        page.goto(url, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_timeout(4000)
+        driver.get(url)
+        time.sleep(5)
 
-        # 리뷰 탭 클릭
-        for sel in [
-            "a[href*='REVIEW']",
-            "[data-type='REVIEW']",
-            "li:has-text('리뷰')",
-            "button:has-text('리뷰')",
-        ]:
-            try:
-                el = page.locator(sel).first
-                if el.is_visible(timeout=2000):
-                    print(f"리뷰 탭 클릭: {sel}")
-                    el.click()
-                    page.wait_for_timeout(3000)
-                    break
-            except Exception:
-                continue
+        title = driver.title
+        print(f"페이지 타이틀: {title}")
 
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
-        page.wait_for_timeout(5000)
+        if "에러" in title or "오류" in title:
+            print("에러 페이지 — 잠시 후 재시도")
+            time.sleep(5)
+            driver.get(url)
+            time.sleep(5)
+            title = driver.title
+            print(f"재시도 타이틀: {title}")
 
-        # Collect page 1 reviews from intercepted API
-        if api_results:
-            first = api_results[0]
-            total = first.get("totalElements", 0)
-            print(f"총 리뷰 수: {total}건")
-            for item in first.get("contents", []):
-                all_reviews.append(_parse_item(item))
+        # 쿠키 수집
+        cookies = {c["name"]: c["value"] for c in driver.get_cookies()}
+        print(f"쿠키 수: {len(cookies)}개")
 
-            # Get auth cookies/headers for subsequent pages
-            cookies = context.cookies()
-            cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+        # User-Agent 수집
+        ua = driver.execute_script("return navigator.userAgent")
+        print(f"UA: {ua[:60]}...")
 
-            # Capture headers from first review request
-            captured_headers = {}
+    finally:
+        driver.quit()
 
-            def on_request(request):
-                if "paged-reviews" in request.url:
-                    captured_headers.update(dict(request.headers))
+    if not cookies:
+        print("쿠키를 가져오지 못했습니다.")
+        return []
 
-            page.on("request", on_request)
+    # requests로 API 호출 (브라우저 쿠키 사용)
+    headers = {
+        "User-Agent": ua,
+        "Referer": f"https://smartstore.naver.com/vilarstore/products/{product_no}",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "ko-KR,ko;q=0.9",
+    }
 
-            # Navigate more pages via API using fetch within the page context
-            for page_num in range(2, max_pages + 1):
-                if len(all_reviews) >= total:
-                    print("전체 수집 완료")
-                    break
-                print(f"[{page_num}] 페이지 수집 중...")
-                params = (
-                    f"reviewType=PRODUCT&productNo={product_no}"
-                    f"&page={page_num}&pageSize={PAGE_SIZE}"
-                    f"&sortType=REVIEW_CREATE_DATE_DESC"
-                )
-                result = page.evaluate(f"""async () => {{
-                    const resp = await fetch(
-                        '{REVIEW_API}?{params}',
-                        {{credentials: 'include'}}
-                    );
-                    return await resp.json();
-                }}""")
-                items = result.get("contents", [])
-                if not items:
-                    print("  리뷰 없음 — 종료")
-                    break
-                for item in items:
-                    all_reviews.append(_parse_item(item))
-                print(f"  수집: {len(items)}건 (누계 {len(all_reviews)}건 / 전체 {total}건)")
-                time.sleep(0.5)
-        else:
-            print("리뷰 API 응답을 찾지 못했습니다.")
-            print(f"페이지 타이틀: {page.title()}")
+    for page_num in range(1, max_pages + 1):
+        print(f"[{page_num}/{max_pages}] 수집 중...")
+        params = {
+            "reviewType": "PRODUCT",
+            "productNo": product_no,
+            "page": page_num,
+            "pageSize": PAGE_SIZE,
+            "sortType": "REVIEW_CREATE_DATE_DESC",
+        }
+        try:
+            resp = requests.get(
+                REVIEW_API,
+                params=params,
+                headers=headers,
+                cookies=cookies,
+                timeout=15,
+            )
+            print(f"  상태: {resp.status_code}")
+            if resp.status_code != 200:
+                print(f"  오류 응답: {resp.text[:200]}")
+                break
+            data = resp.json()
+        except Exception as e:
+            print(f"  오류: {e}")
+            break
 
-        browser.close()
+        items = data.get("contents", [])
+        if not items:
+            print("  리뷰 없음 — 마지막 페이지")
+            break
+
+        total = data.get("totalElements", 0)
+        for item in items:
+            all_reviews.append({
+                "author": item.get("writerMemberSummary", {}).get("nickName", ""),
+                "rating": item.get("reviewScore", ""),
+                "date": (item.get("createDate") or "")[:10],
+                "content": item.get("reviewContent", ""),
+            })
+
+        print(f"  수집: {len(items)}건 (누계 {len(all_reviews)}건 / 전체 {total}건)")
+
+        if len(all_reviews) >= total:
+            print("  전체 수집 완료")
+            break
+
+        time.sleep(0.5)
 
     return all_reviews
-
-
-def _parse_item(item: dict) -> dict:
-    return {
-        "author": item.get("writerMemberSummary", {}).get("nickName", ""),
-        "rating": item.get("reviewScore", ""),
-        "date": (item.get("createDate") or "")[:10],
-        "content": item.get("reviewContent", ""),
-    }
 
 
 def save_csv(reviews: list[dict], path: str):
@@ -183,7 +139,7 @@ def main():
     args = parser.parse_args()
 
     print(f"네이버 스마트스토어 상품 #{args.product_no} 리뷰 수집 시작")
-    reviews = fetch_all_reviews(args.product_no, max_pages=args.pages)
+    reviews = get_cookies_and_fetch(args.product_no, max_pages=args.pages)
     save_csv(reviews, args.out)
 
 
