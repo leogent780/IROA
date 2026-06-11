@@ -120,21 +120,24 @@ def main():
 
         browser.close()
 
-    # Review/list API 직접 테스트
-    print("\n=== /Review/list API 직접 테스트 ===")
+    # Review/list API — 쿠키 포함 테스트
+    print("\n=== /Review/list API (쿠키 포함) 테스트 ===")
+    print(f"보유 쿠키: {list(captured['cookies'].keys())}")
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-        "Referer": BASE_URL,
+        "Referer": "https://sfre-srcs-service.snapfit.co.kr/",
+        "Origin": "https://sfre-srcs-service.snapfit.co.kr",
     }
     for pg in [1, 2]:
         resp = requests.get(
             "https://sfre-srcs-service.snapfit.co.kr/Review/list",
             params={"store_id": 1614, "widget_id": 3, "item_id": 53, "page": pg, "page_size": 10},
             headers=headers,
+            cookies=captured["cookies"],
             timeout=15,
         )
         print(f"\n[page={pg}] 상태: {resp.status_code}, 길이: {len(resp.text)}")
-        print(f"  응답 앞부분: {resp.text[:300]}")
+        print(f"  응답: {resp.text[:400]}")
 
     print("\n완료.")
 
