@@ -18,29 +18,22 @@ def parse_reviews_from_html(html: str) -> list[dict]:
     soup = BeautifulSoup(html, "html.parser")
     reviews = []
 
-    # Snapfit은 web component 방식 — ol > li 구조
-    items = soup.select("ol li") or soup.select(".review-list li") or soup.select("li")
-
+    items = soup.select("review-item")
     for item in items:
-        content_el = (
-            item.select_one("review-text")
-            or item.select_one("[class*='text']")
-            or item.select_one("p")
-            or item.select_one("span")
-        )
-        content = content_el.get_text(strip=True) if content_el else item.get_text(strip=True)
-        if not content or len(content) < 5:
+        content_el = item.select_one("review-text")
+        content = content_el.get_text(strip=True) if content_el else ""
+        if not content:
             continue
 
-        rating_el = item.select_one("[score]") or item.select_one("[data-score]") or item.select_one("[class*='rating']")
+        rating_el = item.select_one("review-rating")
         rating = ""
         if rating_el:
-            rating = rating_el.get("score") or rating_el.get("data-score") or rating_el.get_text(strip=True)
+            rating = rating_el.get("score") or rating_el.get("rating") or rating_el.get_text(strip=True)
 
-        author_el = item.select_one("[class*='writer']") or item.select_one("[class*='author']") or item.select_one("[class*='name']")
+        author_el = item.select_one("writer-display")
         author = author_el.get_text(strip=True) if author_el else ""
 
-        date_el = item.select_one("[class*='date']") or item.select_one("time")
+        date_el = item.select_one("custom-date")
         date = date_el.get_text(strip=True) if date_el else ""
 
         reviews.append({"author": author, "rating": rating, "date": date, "content": content})
