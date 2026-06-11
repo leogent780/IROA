@@ -45,8 +45,46 @@ def main():
                   wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(8000)
 
-        for c in context.cookies():
-            captured["cookies"][c["name"]] = c["value"]
+        # iframe 내부 전역변수 및 review-content 컴포넌트 탐색
+        for frame in page.frames:
+            if "sfre-srcs" in frame.url:
+                print("\n=== iframe 내부 전역변수 (snap 관련) ===")
+                keys = frame.evaluate("""() => {
+                    return Object.keys(window).filter(k =>
+                        k.toLowerCase().includes('snap') ||
+                        k.toLowerCase().includes('review') ||
+                        k.toLowerCase().includes('data')
+                    );
+                }""")
+                print(keys)
+
+                print("\n=== review-content 속성 ===")
+                info = frame.evaluate("""() => {
+                    const el = document.querySelector('review-content');
+                    if (!el) return 'not found';
+                    const attrs = {};
+                    for (const a of el.attributes) attrs[a.name] = a.value;
+                    const props = ['page', 'totalCount', 'pageSize', 'currentPage'];
+                    const propVals = {};
+                    for (const p of props) propVals[p] = el[p];
+                    return {attrs, props: propVals, tagName: el.tagName};
+                }""")
+                print(info)
+
+                print("\n=== pagination-basic 속성 ===")
+                pag = frame.evaluate("""() => {
+                    const el = document.querySelector('pagination-basic');
+                    if (!el) return 'not found';
+                    const attrs = {};
+                    for (const a of el.attributes) attrs[a.name] = a.value;
+                    const props = ['page', 'totalCount', 'limit'];
+                    const propVals = {};
+                    for (const p of props) propVals[p] = el[p];
+                    return {attrs, props: propVals};
+                }""")
+                print(pag)
+                break
+
         browser.close()
 
     print("\n완료.")
