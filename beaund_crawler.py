@@ -168,6 +168,18 @@ def crawl(product_no: int, max_pages: int, delay: float) -> list[dict]:
             print(f"  오류: {e}")
             break
 
+        # 첫 페이지 HTML 저장 (디버깅용)
+        if page_num == 1:
+            with open("review_page1.html", "w", encoding="utf-8") as f:
+                f.write(html)
+            print(f"  첫 페이지 HTML 저장: review_page1.html ({len(html):,} bytes)")
+
+            # 태그 종류 확인
+            from bs4 import BeautifulSoup as BS
+            soup = BS(html, "html.parser")
+            tags = set(t.name for t in soup.find_all())
+            print(f"  HTML 내 태그 목록: {sorted(tags)}")
+
         reviews = parse_review_html(html)
         if not reviews:
             print("  리뷰 없음 — 마지막 페이지")
