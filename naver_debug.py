@@ -26,7 +26,15 @@ def main():
                 print(f"\n[리뷰 API 요청 발견]\nURL: {request.url}")
                 print("Headers:", json.dumps(dict(request.headers), indent=2, ensure_ascii=False))
 
+        all_urls = []
+        def on_all_request(request):
+            all_urls.append(request.url)
+            if "review" in request.url.lower() or "naver" in request.url.lower():
+                if "paged" in request.url or "review" in request.url.lower():
+                    print(f"[REQ] {request.url}")
+
         page.on("request", on_request)
+        page.on("request", on_all_request)
 
         print(f"페이지 로드 중: {URL}")
         page.goto(URL, wait_until="domcontentloaded", timeout=60000)
@@ -55,7 +63,13 @@ def main():
         page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
         page.wait_for_timeout(5000)
 
-        # 쿠키 출력
+        print(f"\n페이지 타이틀: {page.title()}")
+        print(f"총 요청 수: {len(all_urls)}")
+        print("naver 관련 요청:")
+        for u in all_urls:
+            if "naver" in u and ("review" in u or "product" in u):
+                print(f"  {u}")
+
         cookies = {c["name"]: c["value"] for c in context.cookies()}
         print(f"\n쿠키 수: {len(cookies)}")
         print("쿠키 키:", list(cookies.keys()))
