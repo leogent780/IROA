@@ -21,50 +21,35 @@ def main():
         )
         page = context.new_page()
 
-        def intercept(route):
-            request = route.request
-            if "draw_review_dependent" in request.url and request.method == "POST":
-                buf = request.post_data_buffer or b""
-                if buf and not captured["body"]:
-                    captured["body"] = buf
-                    print(f"POST body 캡처: {buf[:200]}")
-            route.continue_()
+        # context 레벨에서 모든 프레임의 응답 캡처
+        def on_response(response):
+            url = response.url
+            if "snapfit" not in url and "sfre" not in url:
+                return
+            ct = response.headers.get("content-type", "")
+            try:
+                body = response.text()
+            except Exception:
+                return
+            # review 관련 JSON 탐색
+            if ("review" in body.lower() or "content" in body.lower()) and len(body) > 200:
+                if body.strip().startswith(("[", "{")):
+                    print(f"\n[JSON API] {url}")
+                    print(f"  Preview: {body[:400]}")
+                elif "draw_review_dependent" in url:
+                    captured["body"] = response.request.post_data_buffer or b""
 
-        context.route("**/*", intercept)
+        context.on("response", on_response)
+
         page.goto(f"{BASE_URL}/product/detail.html?product_no=53",
                   wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_timeout(6000)
+        page.wait_for_timeout(8000)
 
         for c in context.cookies():
             captured["cookies"][c["name"]] = c["value"]
         browser.close()
 
-    if not captured["body"]:
-        print("POST body 캡처 실패")
-        return
-
-    raw = captured["body"].decode("utf-8", errors="ignore")
-    print(f"\n원본 POST body:\n{raw}\n")
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-        "Referer": BASE_URL,
-        "Origin": BASE_URL,
-        "Content-Type": "application/x-www-form-urlencoded",
-    }
-
-    for pg in [1, 2]:
-        body = re.sub(r"page=\d+", f"page={pg}", raw)
-        print(f"\n--- page={pg} 요청 ---")
-        resp = requests.post(DRAW_URL, data=body, headers=headers,
-                             cookies=captured["cookies"], timeout=15)
-        print(f"상태: {resp.status_code}")
-        soup = BeautifulSoup(resp.text, "html.parser")
-        items = soup.select("review-item")
-        print(f"review-item 개수: {len(items)}")
-        if items:
-            first = items[0].select_one("review-text")
-            print(f"첫 번째 리뷰: {first.get_text(strip=True)[:80] if first else 'N/A'}")
+    print("\n완료.")
 
 
 if __name__ == "__main__":
