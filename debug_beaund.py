@@ -21,24 +21,34 @@ def main():
         )
         page = context.new_page()
 
-        # context 레벨에서 모든 프레임의 응답 캡처
+        # context 레벨에서 sfre-srcs 도메인의 모든 요청 캡처
+        def on_request(request):
+            url = request.url
+            if "sfre-srcs" in url:
+                try:
+                    pb = request.post_data_buffer
+                    pd = pb.decode("utf-8", errors="ignore") if pb else ""
+                except Exception:
+                    pd = ""
+                print(f"\n[REQUEST] {request.method} {url}")
+                if pd:
+                    print(f"  POST: {pd[:200]}")
+
         def on_response(response):
             url = response.url
-            if "snapfit" not in url and "sfre" not in url:
+            if "sfre-srcs" not in url:
                 return
-            ct = response.headers.get("content-type", "")
             try:
                 body = response.text()
             except Exception:
                 return
-            # review 관련 JSON 탐색
-            if ("review" in body.lower() or "content" in body.lower()) and len(body) > 200:
-                if body.strip().startswith(("[", "{")):
-                    print(f"\n[JSON API] {url}")
-                    print(f"  Preview: {body[:400]}")
-                elif "draw_review_dependent" in url:
-                    captured["body"] = response.request.post_data_buffer or b""
+            if body.strip().startswith(("[", "{")):
+                print(f"\n[JSON RESPONSE] {url}")
+                print(f"  {body[:400]}")
+            if "draw_review_dependent" in url and not captured["body"]:
+                captured["body"] = response.request.post_data_buffer or b""
 
+        context.on("request", on_request)
         context.on("response", on_response)
 
         page.goto(f"{BASE_URL}/product/detail.html?product_no=53",
