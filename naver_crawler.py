@@ -9,7 +9,6 @@ import argparse
 import csv
 import time
 import requests
-import browser_cookie3
 
 REVIEW_API = "https://smartstore.naver.com/i/v1/reviews/paged-reviews"
 PAGE_SIZE = 20
@@ -18,19 +17,33 @@ UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/148.0.0.0 Safari/537.36"
 )
+COOKIE_FILE = "naver_cookies.txt"
 
 
 def get_naver_cookies() -> dict:
-    """Chrome 쿠키 DB에서 네이버 쿠키 직접 읽기"""
+    """naver_cookies.txt 파일에서 쿠키 읽기"""
     try:
-        jar = browser_cookie3.chrome(domain_name=".naver.com")
-        cookies = {c.name: c.value for c in jar}
-        print(f"쿠키 수: {len(cookies)}개  키: {list(cookies.keys())[:8]}")
-        return cookies
-    except Exception as e:
-        print(f"쿠키 읽기 실패: {e}")
-        print("Chrome에서 smartstore.naver.com을 방문한 뒤 다시 실행하세요.")
+        with open(COOKIE_FILE, encoding="utf-8") as f:
+            cookie_str = f.read().strip()
+    except FileNotFoundError:
+        print(f"[오류] {COOKIE_FILE} 파일이 없습니다.")
+        print()
+        print("다음 순서로 쿠키를 복사하세요:")
+        print("  1. Chrome에서 https://smartstore.naver.com/vilarstore/products/13197800272 방문")
+        print("  2. F12 → Network 탭 → F5 새로고침")
+        print("  3. 왼쪽 목록에서 '13197800272' 클릭")
+        print("  4. Headers → Request Headers → cookie: 값 전체 복사")
+        print(f"  5. 복사한 값을 {COOKIE_FILE} 파일로 저장")
         raise SystemExit(1)
+
+    cookies = {}
+    for part in cookie_str.split(";"):
+        part = part.strip()
+        if "=" in part:
+            k, v = part.split("=", 1)
+            cookies[k.strip()] = v.strip()
+    print(f"쿠키 수: {len(cookies)}개")
+    return cookies
 
 
 def fetch_reviews(product_no: str, max_pages: int, cookies: dict) -> list[dict]:
