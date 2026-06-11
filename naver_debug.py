@@ -30,7 +30,30 @@ def main():
 
         print(f"페이지 로드 중: {URL}")
         page.goto(URL, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_timeout(8000)
+        page.wait_for_timeout(3000)
+
+        # 리뷰 탭 클릭 시도
+        for sel in [
+            "a[href*='REVIEW']",
+            "[data-type='REVIEW']",
+            "li:has-text('리뷰')",
+            "button:has-text('리뷰')",
+            "a:has-text('리뷰')",
+            "[class*='review'] a",
+        ]:
+            try:
+                el = page.locator(sel).first
+                if el.is_visible(timeout=2000):
+                    print(f"리뷰 탭 클릭: {sel}")
+                    el.click()
+                    page.wait_for_timeout(3000)
+                    break
+            except Exception:
+                continue
+
+        # 스크롤해서 리뷰 영역 활성화
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
+        page.wait_for_timeout(5000)
 
         # 쿠키 출력
         cookies = {c["name"]: c["value"] for c in context.cookies()}
