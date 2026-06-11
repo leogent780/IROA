@@ -70,17 +70,27 @@ def crawl(product_no: int, max_pages: int, delay: float) -> list[dict]:
 
         # 리뷰 iframe 찾기
         frames = page.frames
+        print("\n전체 iframe 목록:")
+        for frame in frames:
+            print(f"  name={frame.name!r}, url={frame.url}")
+
         review_frame = None
         for frame in frames:
-            if "snapfit" in frame.url or "review_widget" in frame.name:
+            if "sfre-srcs" in frame.url or ("snapfit" in frame.url and "push" not in frame.url):
                 review_frame = frame
-                print(f"리뷰 iframe 발견: {frame.url}")
+                print(f"\n리뷰 iframe 발견: {frame.url}")
                 break
 
         if not review_frame:
-            print("리뷰 iframe을 찾지 못했습니다. 가능한 iframe 목록:")
+            # name에 review_widget 포함된 것 시도
             for frame in frames:
-                print(f"  name={frame.name!r}, url={frame.url}")
+                if "review_widget" in frame.name:
+                    review_frame = frame
+                    print(f"\n리뷰 iframe 발견 (name): {frame.name}")
+                    break
+
+        if not review_frame:
+            print("리뷰 iframe을 찾지 못했습니다.")
             browser.close()
             return []
 
